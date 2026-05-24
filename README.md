@@ -19,7 +19,7 @@
 [![HLS](https://img.shields.io/badge/HLS-supported-c080ff?style=flat-square)](#)
 [![DASH](https://img.shields.io/badge/DASH-supported-c080ff?style=flat-square)](#)
 [![AES-128](https://img.shields.io/badge/AES--128-decrypted-00c87a?style=flat-square)](#)
-[![Version](https://img.shields.io/badge/Version-1.1.0-ff153f?style=flat-square)](#)
+[![Version](https://img.shields.io/badge/Version-1.2.0-ff153f?style=flat-square)](#)
 
 *"why would i ever pay for a video downloader bro" — me, after writing this*
 
@@ -184,7 +184,38 @@ vid-snatcher/
 
 ## 📋 Changelog
 
-### v1.1.0 — The "It Actually Works Now" Update
+### v1.2.0 — Fetch-verify downloads, MSE capture, separate audio tracks
+
+**🔴 BUG FIXES**
+- **MP4 downloads saving as HTML files.** The old direct-download path passed the URL straight to `chrome.downloads.download()`, which happily saved whatever the server returned at that URL — including HTML auth walls, embed pages, and 403 redirects. Direct downloads now go through the offscreen worker: `HEAD` request first, verify Content-Type starts with `video/`, then stream the body via `fetch()`, build a Blob, save from the Blob. Bonus: real progress reporting during the download.
+- **"Could not stitch / download" errors with no detail.** Replaced generic catch with friendly categorization:
+  - `HTTP 403` → "Server returned 403 — site may require login/referer that the extension can't supply."
+  - `HTTP 404` → "Segment 404 — playlist may be live/expired. Refresh and re-scan."
+  - `5xx` → "Server error: …. Try again in a minute."
+  - CORS → "CORS blocked — segment server doesn't allow cross-origin fetches."
+  - AES → "Encryption issue: …"
+  - parse fail → "Manifest parse failed: …. The file may not be a standard HLS/DASH stream."
+
+**🎥 HLS WITH SEPARATE AUDIO TRACKS**
+Master playlist parser now detects `#EXT-X-MEDIA:TYPE=AUDIO` renditions and `EXT-X-STREAM-INF AUDIO="…"` group links.
+
+- **Prefers muxed variants automatically.** If any variant has audio embedded in the same TS/fMP4 (most YouTube embeds, Twitch VODs, most HLS distros), it picks the highest-bandwidth muxed one and you get a single playable file.
+- **Falls back gracefully to video + audio downloaded separately.** If every variant is video-only with audio in a separate rendition (some Vimeo, some adaptive streams), VidSnatcher downloads BOTH files — `name_VIDEO.mp4` and `name_AUDIO.m4a`. Status message clearly says `video-only — audio is separate` so you know what's coming. Mux them externally with ffmpeg (`ffmpeg -i video.mp4 -i audio.m4a -c copy out.mp4`), VLC's "Open Multiple Files", or mkvtoolnix.
+- Progress reporting includes audio-track download phase (96-99%).
+
+**🎬 MEDIASOURCE BUFFER CAPTURE**
+Previously: pages using MediaSource with a concatenated blob URL showed as "MediaSource — can't download." Now: VidSnatcher hooks `SourceBuffer.prototype.appendBuffer` and silently copies every chunk the page feeds into the player.
+
+- Shows as `MSE-CAPTURE` in the popup with a `⬇ DOWNLOAD MSE CAPTURE` button (cyan badge, not the gray "blob" lockout).
+- Click it to save everything captured so far — best results after letting the video play to the end.
+- 2 GB ceiling per page (oldest chunks drop first if exceeded). Mime type carried through from the first `addSourceBuffer` call so output extension is correct (`.mp4` for `video/mp4`, `.webm` for `video/webm`).
+- Captures continue passively in the background — no impact on page playback because the hook calls the original `appendBuffer` before doing any work.
+
+**🪛 OTHER**
+- Version bumped to v1.2.0
+- Manifest description updated to mention MediaSource capture
+
+### v1.0.0 / v1.1.0 — Initial Release & The "It Actually Works Now" Update
 
 - 🔴 **CRITICAL FIX** — offscreen document had an inline `<script>` tag. MV3's default CSP (`script-src 'self'`) blocks inline scripts in extension pages, so the *entire HLS/DASH download engine never ran*. Click "Stitch & Download" → nothing happens. Moved to external `offscreen.js`. **This was the killer bug.**
 - 🔴 **Removed `window.eval` and `document.write` overrides** — they broke any site with strict CSP and any framework that legitimately uses eval (Webpack, some SPAs). The XHR/fetch hooks catch the URLs anyway.
